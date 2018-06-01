@@ -134,3 +134,131 @@ MNIST有60,000条训练数据，书上为了获得更多的训练数据把每一
 
 ## 问题
 上一篇笔记中提到初始化权重的时候正态分布方差使用的是传入链接数也就是上一层结点数，而书上用的是当前结点数，我在看github上的代码时作者已经修正为上一层结点数了。
+
+# 之三
+
+## 识别自己写的数字
+下面到了好玩儿的部分。用包含了旋转图像角度的数据训练好的200个隐藏层结点、10世代的模型，识别率为0.9771，识别我家三口写的0-9共30个数字，故意写得乱一点。正确识别了12个，识别率只有40%，在调节过程中我发现数字在图片中的位置和图片的对比度都会影响识别效果，我把测试集的对比度+0.1（值域是0.01 ~ 0.99）识别对了15个，+0.2，识别对了18个，对比度打满，识别对了18个。然后我规规矩矩写了10个数字，除了9以外都正确识别了，重写了一个圆更大的9识别正确了。
+
+图片转换成数组用于识别
+```
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.misc
+from PIL import Image
+
+
+root = r'D:\pyFiles\365venv\nnp\testwang'
+test_data = []
+right = 0
+
+for dirpath, dirnames, filenames in os.walk(root):
+    for filename in filenames:
+        # print(filepath)
+        if filename != 'all.jpg':
+            label = filename.split('.')[0][-1]
+            img = Image.open(r'testwang/' + filename)
+
+            # 将图像转换为灰度模式
+            img = img.convert('L')
+            img_array = np.array(img)
+
+            # plt.imshow(img_array, cmap='Greys')
+            # 此时图像的黑白和训练样本的是颠倒的，需要反过来
+            img_array = 255.0 - img_array
+            img_array = img_array / 255.0 * 0.99 + 0.01
+            img_array = img_array.flatten()
+
+            res = n.query(img_array).argmax()
+            print(label, res)
+            if label == str(res):
+                right += 1
+    print(right)
+```
+
+## 更多的训练数据
+
+书中用旋转图像的方法增加了训练数据，我能想到的还可以移动图片位置，根据识别我手写数字的经验还有调整图片对比度的方法可以再增加一些训练数据，看看训练效果能不能再提高。
+```
+# 训练
+from time import perf_counter as pc
+start = pc()
+for _ in range(10):
+    for record in training_data_list:
+        all_values = record.split(',')
+        # inputs是一维数组
+        inputs = np.asfarray(all_values[1:]) / 255.0 * 0.99 + 0.01
+        targets = np.zeros(output_nodes) + 0.01
+        targets[int(all_values[0])] = 0.99
+        n.train(inputs, targets)
+        # imputs_matrix是28 * 28矩阵
+        imputs_matrix = inputs.reshape(28, 28)
+
+        # 左移一个像素
+        img_left = np.zeros((28, 28)) + 0.01
+        img_left[:, :-1] = imputs_matrix[:, 1:]
+        n.train(img_left.ravel(), targets)
+        # 右移一个像素
+        img_right = np.zeros((28, 28)) + 0.01
+        img_right[:, 1:] = imputs_matrix[:, :-1]
+        n.train(img_right.ravel(), targets)
+        # 上移一个像素
+        img_up = np.zeros((28, 28)) + 0.01
+        img_up[:-1, :] = imputs_matrix[1:, :]
+        n.train(img_up.ravel(), targets)
+        # 下移一个像素
+        img_down = np.zeros((28, 28)) + 0.01
+        img_down[1:, :] = imputs_matrix[:-1, :]
+        n.train(img_down.ravel(), targets)
+        # 加0.2对比度
+        img_array = inputs
+        for i in range(len(img_array)):
+            if img_array[i] != 0.01:
+                img_array[i] += 0.2
+            if img_array[i] > 0.99:
+                img_array[i] = 0.99
+        n.train(img_array, targets)
+        # 减0.1对比度
+        img_array = inputs
+        for i in range(len(img_array)):
+            if img_array[i] != 0.01:
+                img_array[i] -= 0.1
+            if img_array[i] < 0.011:
+                img_array[i] = 0.011
+        n.train(img_array, targets)
+
+        # 顺时针旋转10度
+        img_plus10 = scipy.ndimage.interpolation.rotate(imputs_matrix, 10, cval=0.01, order=1, reshape=False)
+        n.train(img_plus10.ravel(), targets)
+        # 逆时针旋转10度
+        img_minus10 = scipy.ndimage.interpolation.rotate(imputs_matrix, -10, cval=0.01, order=1, reshape=False)
+        n.train(img_minus10.ravel(), targets)
+```
+我使用了200个隐藏层结点，学习率0.005，训练10世代，对MNIST原始数据、顺时针逆时针旋转10度、上下左右各移动1个像素和对比度增加0.2减少0.1共9套数据进行训练，耗时9010.42305秒，合两个半小时，得到识别率0.9783，虽然只提高了0.0004，而且增加的训练样本是否对这个提高有作用很难说，但是能进步一点还是挺高兴的。
+
+然后接下来的鼓捣给我带来了惊喜，识别我家三口的手写准确率有了提升：
+
+模型 | 增加对比度 | 识别率
+---|---|---
+MNIST+旋转| +0 | 12
+MNIST+旋转| +0.1 | 15
+MNIST+旋转| +0.2-0.5 | 18
+MNIST+旋转| +0.6-0.7 | 17
+MNIST+旋转| +0.8及以上 | 18
+MNIST+旋转+平移+增减对比度| +0 | 12
+MNIST+旋转+平移+增减对比度| +0.1 | 17
+MNIST+旋转+平移+增减对比度| +0.2 | 19
+MNIST+旋转+平移+增减对比度| +0.4 | 20
+MNIST+旋转+平移+增减对比度| +0.5及以上 | 19
+
+通过以上的测试我认为平移和调整对比度对于模型的训练时有意义的，同时我还发现不是对比度越大识别率越大。
+
+#### 识别结果，红字为错误识别结果
+
+![](http://ww1.sinaimg.cn/large/780b940aly1frtpe1u5taj20hs0e6759.jpg)
+
+## 收获
+书中说他在加入旋转训练数据后识别率到达0.9787，几乎到达98%，感觉很骄傲。而我在实测我的手写数字时识别率并不令人满意。我读书的时候就想到了平移图片增加训练样本，我在上一篇笔记中把数组转换成图片查看手写数字形状的时候注释了一行```# plt.axis('off')```，开始把坐标轴去掉是想更清楚地看数字形状，后来注释掉了就是特地为了看一下数字与边缘的距离，我看有些数字距离边缘只有一个像素，如果移动两个像素可能会比较严重地影响数字的形状。所以我在平移的时候只移动了一个像素。然后在测试我自己的手写样本时又发现识别率和对比度有关系，就加上了对增减了对比度的样本的训练。
+
+训练时间从最初的24秒增加到了两个半小时，还可以再通过调整训练样本的参数继续增加训练集，但我感觉已经非常接近极限了，通过调整图片位置和对比度我感觉如果只是同一个训练样本变换位置和对比度就能训练出不同的结果，就应该在模型上想办法了，继续在训练样本上做文章意义不大了。对于这本书和这个模型暂时先学习到这里吧，看书用3天，自己扩展用了3天，把书读厚这个过程收获良多。
+
